@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vision Pong</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous" defer></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════
+     SCREEN: MENU
+═══════════════════════════════ -->
+<div id="screen-menu" class="screen active">
+
+  <div class="menu-bg">
+    <canvas id="bgCanvas"></canvas>
+  </div>
+
+  <div class="menu-content">
+    <header class="menu-header">
+      <div class="logo">
+        <span class="logo-v">V</span><span class="logo-ision">ISION</span>
+        <span class="logo-pong">PONG</span>
+      </div>
+      <p class="logo-tagline">play with your hands — literally</p>
+    </header>
+
+    <div class="menu-grid">
+      <!-- Mode selector -->
+      <section class="card card--mode">
+        <h2 class="card-title">MODE</h2>
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="ai" onclick="UI.selectMode('ai',this)">
+            <span class="mt-icon">🤖</span>
+            <span class="mt-label">VS AI</span>
+          </button>
+          <button class="mode-tab" data-mode="friend" onclick="UI.selectMode('friend',this)">
+            <span class="mt-icon">🤜🤛</span>
+            <span class="mt-label">2 PLAYERS</span>
+          </button>
+        </div>
+
+        <div id="diff-row" class="diff-row">
+          <span class="diff-label">DIFFICULTY</span>
+          <div class="diff-pills">
+            <button class="diff-pill" data-d="easy" onclick="UI.selectDiff('easy',this)">EASY</button>
+            <button class="diff-pill active" data-d="medium" onclick="UI.selectDiff('medium',this)">MEDIUM</button>
+            <button class="diff-pill" data-d="hard" onclick="UI.selectDiff('hard',this)">HARD</button>
+            <button class="diff-pill" data-d="insane" onclick="UI.selectDiff('insane',this)">INSANE</button>
+          </div>
+        </div>
+
+        <div id="players-tip" class="players-tip hidden">
+          <span>✋ Left hand → P1 &nbsp;&nbsp; 🤚 Right hand → P2</span>
+        </div>
+      </section>
+
+      <!-- Quick settings preview -->
+      <section class="card card--preview">
+        <h2 class="card-title">BALL SKIN
+          <button class="small-btn" onclick="UI.openSettings()">⚙ ALL SETTINGS</button>
+        </h2>
+        <div class="ball-picker" id="ballPicker"></div>
+      </section>
+
+      <!-- How to play -->
+      <section class="card card--how">
+        <h2 class="card-title">HOW TO PLAY</h2>
+        <ol class="how-list">
+          <li>Allow camera access when prompted</li>
+          <li>Hold your open hand in front of the camera</li>
+          <li>Move your hand <strong>up and down</strong> to move your paddle</li>
+          <li>First player to reach <strong id="winScoreDisplay">10</strong> points wins</li>
+        </ol>
+      </section>
+    </div>
+
+    <button class="play-btn" onclick="UI.goToCamera()">
+      <span class="play-btn-inner">PLAY NOW</span>
+      <span class="play-btn-arrow">→</span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     SCREEN: CAMERA PERMISSION
+═══════════════════════════════ -->
+<div id="screen-perm" class="screen">
+  <div class="perm-wrap">
+    <div class="perm-visual">
+      <div class="cam-ring cam-ring--1"></div>
+      <div class="cam-ring cam-ring--2"></div>
+      <div class="cam-icon">📷</div>
+    </div>
+    <h2 class="perm-title">Camera Access</h2>
+    <p class="perm-body">Vision Pong tracks your hands using your webcam. Everything runs <strong>100% in your browser</strong> — no video is sent to any server.</p>
+    <button class="perm-btn" onclick="Vision.requestCamera()">
+      Allow Camera &amp; Continue
+    </button>
+    <button class="perm-back" onclick="UI.showScreen('menu')">← Back</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     SCREEN: LOADING
+═══════════════════════════════ -->
+<div id="screen-load" class="screen">
+  <div class="load-wrap">
+    <div class="load-icon">🖐</div>
+    <h2 class="load-title">Loading Hand Tracker</h2>
+    <div class="load-stages">
+      <div class="load-stage" id="ls-mediapipe">
+        <span class="ls-dot"></span><span class="ls-text">MediaPipe Hands</span>
+        <span class="ls-status" id="lss-mediapipe">waiting…</span>
+      </div>
+      <div class="load-stage" id="ls-model">
+        <span class="ls-dot"></span><span class="ls-text">Hand detection model</span>
+        <span class="ls-status" id="lss-model">waiting…</span>
+      </div>
+      <div class="load-stage" id="ls-warmup">
+        <span class="ls-dot"></span><span class="ls-text">Warming up</span>
+        <span class="ls-status" id="lss-warmup">waiting…</span>
+      </div>
+    </div>
+    <div class="load-bar-track">
+      <div class="load-bar-fill" id="loadBarFill"></div>
+    </div>
+    <p class="load-hint" id="loadHint">This takes ~3–5 seconds on first load</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     SCREEN: GAME
+═══════════════════════════════ -->
+<div id="screen-game" class="screen">
+
+  <!-- TOP HUD -->
+  <div class="hud-top">
+    <div class="hud-player hud-player--left">
+      <div class="hud-hand-status" id="hud-hand-p1">
+        <span class="hhs-icon">✋</span>
+        <span class="hhs-dot" id="hdot-p1"></span>
+      </div>
+      <div class="hud-name" id="hudP1Name">PLAYER 1</div>
+      <div class="hud-score" id="hudScoreP1">0</div>
+    </div>
+
+    <div class="hud-center">
+      <div class="hud-fps" id="hudFps">-- fps</div>
+      <button class="hud-pause-btn" id="pauseBtn" onclick="Main.togglePause()">⏸</button>
+      <button class="hud-quit-btn" onclick="Main.quit()">✕</button>
+    </div>
+
+    <div class="hud-player hud-player--right">
+      <div class="hud-score" id="hudScoreP2">0</div>
+      <div class="hud-name" id="hudP2Name">AI</div>
+      <div class="hud-hand-status" id="hud-hand-p2">
+        <span class="hhs-dot" id="hdot-p2"></span>
+        <span class="hhs-icon">🤚</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN GAME AREA -->
+  <div class="game-body">
+
+    <!-- Camera panel LEFT -->
+    <div class="cam-panel" id="camPanelLeft">
+      <div class="cam-label">YOUR CAMERA</div>
+      <div class="cam-preview-wrap" id="camPreviewWrap">
+        <video id="camVideo" autoplay playsinline muted></video>
+        <canvas id="camCanvas"></canvas>
+        <div class="cam-overlay-corner cam-overlay-corner--tl"></div>
+        <div class="cam-overlay-corner cam-overlay-corner--tr"></div>
+        <div class="cam-overlay-corner cam-overlay-corner--bl"></div>
+        <div class="cam-overlay-corner cam-overlay-corner--br"></div>
+      </div>
+      <div class="hand-debug" id="handDebug">
+        <div class="hd-row" id="hd-left">
+          <span class="hd-icon">✋</span>
+          <div class="hd-bar-wrap"><div class="hd-bar" id="hdb-left"></div></div>
+          <span class="hd-val" id="hdv-left">--</span>
+        </div>
+        <div class="hd-row" id="hd-right">
+          <span class="hd-icon">🤚</span>
+          <div class="hd-bar-wrap"><div class="hd-bar" id="hdb-right"></div></div>
+          <span class="hd-val" id="hdv-right">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game canvas -->
+    <div class="game-canvas-wrap" id="gameCanvasWrap">
+      <canvas id="gameCanvas"></canvas>
+
+      <!-- Pause overlay -->
+      <div class="pause-overlay hidden" id="pauseOverlay">
+        <div class="pause-box">
+          <div class="pause-title">PAUSED</div>
+          <button class="pause-resume" onclick="Main.togglePause()">RESUME</button>
+          <button class="pause-settings" onclick="UI.openSettings()">SETTINGS</button>
+          <button class="pause-quit" onclick="Main.quit()">QUIT TO MENU</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     SCREEN: WIN
+═══════════════════════════════ -->
+<div id="screen-win" class="screen">
+  <div class="win-wrap">
+    <div class="win-confetti" id="winConfetti"></div>
+    <div class="win-badge" id="winBadge">
+      <div class="win-crown">👑</div>
+      <div class="win-player-name" id="winPlayerName">PLAYER 1</div>
+      <div class="win-label-text">WINS!</div>
+    </div>
+    <div class="win-scoreboard">
+      <div class="wsb-player">
+        <span id="wsbP1Name">P1</span>
+        <span class="wsb-score" id="wsbS1">10</span>
+      </div>
+      <span class="wsb-divider">–</span>
+      <div class="wsb-player">
+        <span class="wsb-score" id="wsbS2">7</span>
+        <span id="wsbP2Name">P2</span>
+      </div>
+    </div>
+    <div class="win-actions">
+      <button class="win-btn win-btn--primary" onclick="Main.restart()">PLAY AGAIN</button>
+      <button class="win-btn win-btn--ghost" onclick="Main.quit()">MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════
+     SETTINGS PANEL (overlay)
+═══════════════════════════════ -->
+<div id="settingsPanel" class="settings-panel">
+  <div class="sp-backdrop" onclick="UI.closeSettings()"></div>
+  <div class="sp-drawer">
+    <div class="sp-header">
+      <h2 class="sp-title">Settings</h2>
+      <button class="sp-close" onclick="UI.closeSettings()">✕</button>
+    </div>
+    <div class="sp-body">
+
+      <div class="sp-section">
+        <h3 class="sp-section-title">BALL</h3>
+        <div class="sp-row">
+          <label>Skin</label>
+          <div class="ball-picker sp-ball-picker" id="spBallPicker"></div>
+        </div>
+        <div class="sp-row">
+          <label>Speed</label>
+          <input type="range" min="3" max="12" step="0.5" id="setBallSpeed" oninput="Settings.set('ballSpeed',+this.value); this.nextElementSibling.textContent=this.value"/>
+          <span class="range-val" id="setBallSpeedVal">6</span>
+        </div>
+        <div class="sp-row">
+          <label>Size</label>
+          <input type="range" min="6" max="20" step="1" id="setBallSize" oninput="Settings.set('ballSize',+this.value); this.nextElementSibling.textContent=this.value+'px'"/>
+          <span class="range-val" id="setBallSizeVal">10px</span>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <h3 class="sp-section-title">PADDLE</h3>
+        <div class="sp-row">
+          <label>Height</label>
+          <input type="range" min="50" max="160" step="5" id="setPaddleH" oninput="Settings.set('paddleH',+this.value); this.nextElementSibling.textContent=this.value+'px'"/>
+          <span class="range-val" id="setPaddleHVal">90px</span>
+        </div>
+        <div class="sp-row">
+          <label>Glow</label>
+          <input type="range" min="0" max="40" step="2" id="setPaddleGlow" oninput="Settings.set('paddleGlow',+this.value); this.nextElementSibling.textContent=this.value"/>
+          <span class="range-val" id="setPaddleGlowVal">20</span>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <h3 class="sp-section-title">HAND TRACKING</h3>
+        <div class="sp-row">
+          <label>Sensitivity</label>
+          <input type="range" min="0.3" max="1.0" step="0.05" id="setSensitivity" oninput="Settings.set('sensitivity',+this.value); this.nextElementSibling.textContent=Math.round(this.value*100)+'%'"/>
+          <span class="range-val" id="setSensitivityVal">75%</span>
+        </div>
+        <div class="sp-row">
+          <label>Dead Zone</label>
+          <input type="range" min="0" max="0.3" step="0.01" id="setDeadZone" oninput="Settings.set('deadZone',+this.value); this.nextElementSibling.textContent=Math.round(this.value*100)+'%'"/>
+          <span class="range-val" id="setDeadZoneVal">10%</span>
+        </div>
+        <div class="sp-row">
+          <label>Smoothing</label>
+          <input type="range" min="0.05" max="0.9" step="0.05" id="setSmoothing" oninput="Settings.set('smoothing',+this.value); this.nextElementSibling.textContent=Math.round(this.value*100)+'%'"/>
+          <span class="range-val" id="setSmoothingVal">25%</span>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <h3 class="sp-section-title">GAME</h3>
+        <div class="sp-row">
+          <label>Win Score</label>
+          <input type="range" min="3" max="21" step="1" id="setWinScore" oninput="Settings.set('winScore',+this.value); this.nextElementSibling.textContent=this.value; document.getElementById('winScoreDisplay').textContent=this.value"/>
+          <span class="range-val" id="setWinScoreVal">10</span>
+        </div>
+        <div class="sp-row">
+          <label>Trail Length</label>
+          <input type="range" min="0" max="24" step="1" id="setTrail" oninput="Settings.set('trailLen',+this.value); this.nextElementSibling.textContent=this.value"/>
+          <span class="range-val" id="setTrailVal">12</span>
+        </div>
+        <div class="sp-row">
+          <label>Particles</label>
+          <select id="setParticles" onchange="Settings.set('particles',this.value)">
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="high" selected>High</option>
+          </select>
+        </div>
+        <div class="sp-row">
+          <label>Arena Theme</label>
+          <select id="setTheme" onchange="Settings.set('theme',this.value)">
+            <option value="dark">Dark</option>
+            <option value="neon">Neon</option>
+            <option value="glass">Glass</option>
+            <option value="retro">Retro CRT</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sp-section">
+        <button class="sp-reset" onclick="Settings.reset()">↺ Reset to Defaults</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Countdown overlay -->
+<div id="countdownOverlay" class="countdown-overlay hidden">
+  <div class="cd-num" id="cdNum"></div>
+</div>
+
+<!-- JS modules — order matters -->
+<script src="js/settings.js"></script>
+<script src="js/vision.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>

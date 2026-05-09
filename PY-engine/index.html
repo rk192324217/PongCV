@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Vision Pong — Hand Tracking Game</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  :root {
+    --neon-cyan: #00f5ff;
+    --neon-pink: #ff006e;
+    --neon-green: #39ff14;
+    --neon-yellow: #ffe600;
+    --bg-dark: #030712;
+    --bg-panel: #0a0f1e;
+    --grid-color: rgba(0,245,255,0.04);
+    --glow-cyan: 0 0 10px #00f5ff, 0 0 30px rgba(0,245,255,0.4);
+    --glow-pink: 0 0 10px #ff006e, 0 0 30px rgba(255,0,110,0.4);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-dark);
+    font-family: 'Share Tech Mono', monospace;
+    color: #e0e8ff;
+    min-height: 100vh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* ── SCREENS ── */
+  .screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: opacity 0.4s ease;
+  }
+  .screen.hidden { opacity: 0; pointer-events: none; }
+
+  /* ── MENU SCREEN ── */
+  #menuScreen {
+    gap: 0;
+  }
+
+  .logo-wrap {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  .logo-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: clamp(3rem, 8vw, 6rem);
+    letter-spacing: 0.12em;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--neon-cyan) 0%, #ffffff 50%, var(--neon-pink) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 20px rgba(0,245,255,0.6));
+    animation: logoBreath 3s ease-in-out infinite;
+  }
+
+  @keyframes logoBreath {
+    0%,100% { filter: drop-shadow(0 0 20px rgba(0,245,255,0.6)); }
+    50% { filter: drop-shadow(0 0 40px rgba(0,245,255,1)) drop-shadow(0 0 60px rgba(255,0,110,0.5)); }
+  }
+
+  .logo-sub {
+    font-size: 0.85rem;
+    letter-spacing: 0.4em;
+    color: var(--neon-cyan);
+    margin-top: 8px;
+    opacity: 0.8;
+  }
+
+  .menu-cards {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .mode-card {
+    background: var(--bg-panel);
+    border: 1px solid rgba(0,245,255,0.2);
+    border-radius: 4px;
+    padding: 28px 36px;
+    width: 220px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .mode-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,245,255,0.05), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .mode-card:hover::before { opacity: 1; }
+  .mode-card:hover {
+    border-color: var(--neon-cyan);
+    box-shadow: var(--glow-cyan), inset 0 0 30px rgba(0,245,255,0.05);
+    transform: translateY(-3px);
+  }
+  .mode-card.selected {
+    border-color: var(--neon-cyan);
+    box-shadow: var(--glow-cyan);
+    background: rgba(0,245,255,0.08);
+  }
+  .mode-card .icon { font-size: 2.5rem; display: block; margin-bottom: 12px; }
+  .mode-card .label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--neon-cyan);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .mode-card .desc { font-size: 0.72rem; color: rgba(224,232,255,0.5); line-height: 1.4; }
+
+  /* Difficulty row */
+  #difficultyRow {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 36px;
+    transition: opacity 0.3s;
+  }
+  #difficultyRow.hidden { opacity: 0; pointer-events: none; }
+
+  .diff-btn {
+    background: transparent;
+    border: 1px solid rgba(255,230,0,0.3);
+    color: var(--neon-yellow);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    padding: 8px 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 2px;
+  }
+  .diff-btn:hover, .diff-btn.active {
+    background: rgba(255,230,0,0.12);
+    border-color: var(--neon-yellow);
+    box-shadow: 0 0 10px rgba(255,230,0,0.4);
+  }
+
+  .start-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.3em;
+    padding: 16px 56px;
+    background: transparent;
+    border: 2px solid var(--neon-cyan);
+    color: var(--neon-cyan);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    border-radius: 3px;
+    transition: all 0.2s;
+  }
+  .start-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--neon-cyan);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.25s ease;
+    z-index: -1;
+  }
+  .start-btn:hover::before { transform: scaleX(1); }
+  .start-btn:hover { color: var(--bg-dark); box-shadow: var(--glow-cyan); }
+
+  .instructions {
+    margin-top: 32px;
+    font-size: 0.72rem;
+    color: rgba(224,232,255,0.35);
+    letter-spacing: 0.05em;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* ── CAMERA PERMISSION SCREEN ── */
+  #permScreen {
+    gap: 24px;
+    text-align: center;
+  }
+  .perm-icon { font-size: 4rem; }
+  .perm-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    color: var(--neon-cyan);
+    letter-spacing: 0.1em;
+  }
+  .perm-desc { font-size: 0.85rem; color: rgba(224,232,255,0.6); max-width: 360px; line-height: 1.6; }
+  .perm-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    letter-spacing: 0.2em;
+    padding: 14px 44px;
+    background: transparent;
+    border: 2px solid var(--neon-green);
+    color: var(--neon-green);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.2s;
+  }
+  .perm-btn:hover {
+    background: rgba(57,255,20,0.1);
+    box-shadow: 0 0 20px rgba(57,255,20,0.4);
+  }
+
+  /* ── LOADING SCREEN ── */
+  #loadScreen {
+    gap: 20px;
+    text-align: center;
+  }
+  .load-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
+    color: var(--neon-cyan);
+  }
+  .load-bar-wrap {
+    width: 300px;
+    height: 4px;
+    background: rgba(0,245,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .load-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    width: 0%;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 10px var(--neon-cyan);
+  }
+  .load-status { font-size: 0.75rem; color: rgba(224,232,255,0.5); letter-spacing: 0.1em; }
+
+  /* ── GAME SCREEN ── */
+  #gameScreen {
+    flex-direction: row;
+    align-items: stretch;
+    padding: 0;
+    gap: 0;
+  }
+
+  /* Camera side panel */
+  #camPanel {
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid rgba(0,245,255,0.1);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 12px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .cam-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    color: var(--neon-cyan);
+    opacity: 0.7;
+  }
+
+  .cam-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid rgba(0,245,255,0.15);
+  }
+  #camVideo, #camCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  #camCanvas { z-index: 2; transform: scaleX(-1); }
+
+  .hand-indicators {
+    display: flex;
+    gap: 8px;
+  }
+  .hand-ind {
+    flex: 1;
+    padding: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.05);
+    text-align: center;
+    font-size: 0.65rem;
+    transition: all 0.2s;
+  }
+  .hand-ind.active-left {
+    border-color: var(--neon-cyan);
+    background: rgba(0,245,255,0.08);
+    color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(0,245,255,0.3);
+  }
+  .hand-ind.active-right {
+    border-color: var(--neon-pink);
+    background: rgba(255,0,110,0.08);
+    color: var(--neon-pink);
+    box-shadow: 0 0 8px rgba(255,0,110,0.3);
+  }
+  .hand-ind .hi-icon { font-size: 1.2rem; display: block; margin-bottom: 3px; }
+  .hand-ind .hi-label { letter-spacing: 0.1em; opacity: 0.7; }
+
+  .score-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 3px;
+    border: 1px solid rgba(0,245,255,0.1);
+  }
+  .score-block { text-align: center; }
+  .score-name {
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    opacity: 0.6;
+    margin-bottom: 3px;
+    font-family: 'Orbitron', sans-serif;
+  }
+  .score-num {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2rem;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .score-num.p1 { color: var(--neon-cyan); text-shadow: var(--glow-cyan); }
+  .score-num.p2 { color: var(--neon-pink); text-shadow: var(--glow-pink); }
+  .score-divider { font-size: 1.2rem; opacity: 0.3; }
+
+  .fps-display {
+    font-size: 0.65rem;
+    color: rgba(57,255,20,0.6);
+    text-align: right;
+    letter-spacing: 0.1em;
+  }
+
+  .quit-btn {
+    margin-top: auto;
+    background: transparent;
+    border: 1px solid rgba(255,0,110,0.3);
+    color: rgba(255,0,110,0.6);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.2s;
+  }
+  .quit-btn:hover { border-color: var(--neon-pink); color: var(--neon-pink); }
+
+  /* Main game canvas area */
+  #gameArea {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #gameCanvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* ── WIN SCREEN ── */
+  #winScreen {
+    gap: 20px;
+    text-align: center;
+  }
+  .win-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.4em;
+    color: rgba(224,232,255,0.5);
+  }
+  .win-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2.5rem,6vw,4.5rem);
+    letter-spacing: 0.1em;
+    animation: winPulse 1s ease-in-out infinite;
+  }
+  .win-title.p1-win {
+    background: linear-gradient(135deg, var(--neon-cyan), #fff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .win-title.p2-win {
+    background: linear-gradient(135deg, var(--neon-pink), #fff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  @keyframes winPulse {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+  .win-score {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.5rem;
+    letter-spacing: 0.2em;
+    color: rgba(224,232,255,0.7);
+  }
+  .win-btns { display: flex; gap: 16px; }
+  .win-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.2em;
+    padding: 12px 32px;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.2s;
+  }
+  .win-btn.restart {
+    border: 2px solid var(--neon-cyan);
+    color: var(--neon-cyan);
+  }
+  .win-btn.restart:hover {
+    background: rgba(0,245,255,0.1);
+    box-shadow: var(--glow-cyan);
+  }
+  .win-btn.menu {
+    border: 2px solid rgba(224,232,255,0.3);
+    color: rgba(224,232,255,0.5);
+  }
+  .win-btn.menu:hover {
+    border-color: rgba(224,232,255,0.6);
+    color: rgba(224,232,255,0.8);
+  }
+
+  /* Countdown overlay */
+  #countdownOverlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    pointer-events: none;
+  }
+  #countdownOverlay.hidden { display: none; }
+  #countdownNum {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 20vw;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-cyan);
+    animation: countPop 1s ease-out;
+  }
+  @keyframes countPop {
+    0% { transform: scale(2); opacity: 0; }
+    30% { opacity: 1; transform: scale(1); }
+    70% { opacity: 1; transform: scale(1); }
+    100% { transform: scale(0.3); opacity: 0; }
+  }
+
+  /* Mobile warning */
+  .mobile-warn {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--bg-dark);
+    z-index: 200;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px;
+    gap: 16px;
+  }
+  @media (max-width: 700px) { .mobile-warn { display: flex; } }
+  .mobile-warn .icon { font-size: 3rem; }
+  .mobile-warn p {
+    font-size: 0.9rem;
+    color: rgba(224,232,255,0.6);
+    max-width: 320px;
+    line-height: 1.7;
+  }
+  .mobile-warn strong { color: var(--neon-cyan); font-family: 'Orbitron', sans-serif; }
+</style>
+</head>
+<body>
+
+<!-- Mobile warning -->
+<div class="mobile-warn">
+  <div class="icon">🖥️</div>
+  <strong>DESKTOP REQUIRED</strong>
+  <p>Vision Pong uses your webcam for hand tracking. For the best experience, please open this on a desktop or laptop browser.</p>
+</div>
+
+<!-- MENU SCREEN -->
+<div class="screen" id="menuScreen">
+  <div class="logo-wrap">
+    <div class="logo-title">VISION PONG</div>
+    <div class="logo-sub">HAND TRACKING ARCADE</div>
+  </div>
+
+  <div class="menu-cards">
+    <div class="mode-card selected" id="cardAI" onclick="selectMode('ai')">
+      <span class="icon">🤖</span>
+      <span class="label">VS AI</span>
+      <span class="desc">One player. Compete against an adaptive computer opponent.</span>
+    </div>
+    <div class="mode-card" id="cardFriend" onclick="selectMode('friend')">
+      <span class="icon">🤝</span>
+      <span class="label">2 PLAYERS</span>
+      <span class="desc">Both players use their hands in frame to control paddles.</span>
+    </div>
+  </div>
+
+  <div id="difficultyRow">
+    <button class="diff-btn" onclick="selectDiff('easy',this)">EASY</button>
+    <button class="diff-btn active" onclick="selectDiff('medium',this)">MEDIUM</button>
+    <button class="diff-btn" onclick="selectDiff('hard',this)">HARD</button>
+  </div>
+
+  <button class="start-btn" onclick="startGame()">START GAME</button>
+
+  <div class="instructions">
+    Hold your open hand in front of the camera · Move it up/down to control your paddle<br>
+    2-Player: Left hand = P1 &nbsp;|&nbsp; Right hand = P2 &nbsp;·&nbsp; First to 10 wins<br>
+    Requires camera permission · Best in Chrome/Edge
+  </div>
+</div>
+
+<!-- CAMERA PERMISSION SCREEN -->
+<div class="screen hidden" id="permScreen">
+  <div class="perm-icon">📷</div>
+  <div class="perm-title">CAMERA ACCESS NEEDED</div>
+  <div class="perm-desc">Vision Pong tracks your hands in real-time using your webcam. Your video never leaves your device — all processing happens locally in the browser.</div>
+  <button class="perm-btn" onclick="requestCamera()">GRANT CAMERA ACCESS</button>
+</div>
+
+<!-- LOADING SCREEN -->
+<div class="screen hidden" id="loadScreen">
+  <div class="load-title">INITIALIZING HAND TRACKER</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="loadBar"></div></div>
+  <div class="load-status" id="loadStatus">Loading MediaPipe…</div>
+</div>
+
+<!-- GAME SCREEN -->
+<div class="screen hidden" id="gameScreen">
+  <div id="camPanel">
+    <div class="cam-label">CAMERA FEED</div>
+    <div class="cam-wrap">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <canvas id="camCanvas"></canvas>
+    </div>
+    <div class="hand-indicators">
+      <div class="hand-ind" id="indLeft">
+        <span class="hi-icon">✋</span>
+        <span class="hi-label">LEFT</span>
+      </div>
+      <div class="hand-ind" id="indRight">
+        <span class="hi-icon">🤚</span>
+        <span class="hi-label">RIGHT</span>
+      </div>
+    </div>
+    <div class="score-panel">
+      <div class="score-block">
+        <div class="score-name" id="p1Name">PLAYER 1</div>
+        <div class="score-num p1" id="scoreP1">0</div>
+      </div>
+      <div class="score-divider">:</div>
+      <div class="score-block">
+        <div class="score-name" id="p2Name">AI</div>
+        <div class="score-num p2" id="scoreP2">0</div>
+      </div>
+    </div>
+    <div class="fps-display" id="fpsDisplay">-- FPS</div>
+    <button class="quit-btn" onclick="quitToMenu()">◀ QUIT TO MENU</button>
+  </div>
+  <div id="gameArea">
+    <canvas id="gameCanvas"></canvas>
+  </div>
+</div>
+
+<!-- WIN SCREEN -->
+<div class="screen hidden" id="winScreen">
+  <div class="win-label">GAME OVER</div>
+  <div class="win-title" id="winTitle">PLAYER 1 WINS!</div>
+  <div class="win-score" id="winScore">10 — 7</div>
+  <div class="win-btns">
+    <button class="win-btn restart" onclick="restartGame()">PLAY AGAIN</button>
+    <button class="win-btn menu" onclick="quitToMenu()">MENU</button>
+  </div>
+</div>
+
+<!-- Countdown overlay -->
+<div id="countdownOverlay" class="hidden">
+  <div id="countdownNum">3</div>
+</div>
+
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ─────────────────────────────────────────────
+//  GLOBALS
+// ─────────────────────────────────────────────
+let gameMode = 'ai';
+let aiLevel = 'medium';
+let gameState = null;
+let animFrame = null;
+let handsDetector = null;
+let videoStream = null;
+let lastFpsTime = 0, frameCount = 0, currentFps = 0;
+
+// Hand tracking output (updated by vision loop)
+let handData = { left: null, right: null }; // y values 0..1
+
+// ─────────────────────────────────────────────
+//  MENU
+// ─────────────────────────────────────────────
+function selectMode(m) {
+  gameMode = m;
+  document.getElementById('cardAI').classList.toggle('selected', m === 'ai');
+  document.getElementById('cardFriend').classList.toggle('selected', m === 'friend');
+  document.getElementById('difficultyRow').classList.toggle('hidden', m === 'friend');
+}
+
+function selectDiff(d, btn) {
+  aiLevel = d;
+  document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function startGame() {
+  showScreen('permScreen');
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+// ─────────────────────────────────────────────
+//  CAMERA + MEDIAPIPE INIT
+// ─────────────────────────────────────────────
+async function requestCamera() {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+    const vid = document.getElementById('camVideo');
+    vid.srcObject = videoStream;
+    await vid.play();
+    showScreen('loadScreen');
+    await initMediaPipe();
+  } catch(e) {
+    alert('Camera access denied or unavailable. Please allow camera access and try again.\n\n' + e.message);
+  }
+}
+
+async function initMediaPipe() {
+  const setProgress = (pct, msg) => {
+    document.getElementById('loadBar').style.width = pct + '%';
+    document.getElementById('loadStatus').textContent = msg;
+  };
+
+  setProgress(10, 'Waiting for MediaPipe…');
+
+  // Wait for Hands constructor to be available
+  let attempts = 0;
+  while (typeof Hands === 'undefined' && attempts < 60) {
+    await sleep(300);
+    attempts++;
+  }
+
+  if (typeof Hands === 'undefined') {
+    setProgress(20, 'Trying fallback CDN…');
+    try { await loadScript('https://unpkg.com/@mediapipe/hands/hands.js'); await sleep(800); } catch(e) {}
+  }
+
+  if (typeof Hands === 'undefined') {
+    alert('Failed to load MediaPipe Hands.\n\nPlease:\n• Check your internet connection\n• Disable ad blockers for this page\n• Use Chrome or Edge');
+    showScreen('menuScreen');
+    return;
+  }
+
+  setProgress(40, 'Initializing hand detector…');
+
+  handsDetector = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+
+  handsDetector.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6,
+  });
+
+  handsDetector.onResults(onHandResults);
+
+  setProgress(70, 'Warming up model…');
+  
+  // Do a warm-up send
+  const vid = document.getElementById('camVideo');
+  await handsDetector.send({ image: vid });
+
+  setProgress(100, 'Ready!');
+  await sleep(400);
+
+  launchGame();
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─────────────────────────────────────────────
+//  HAND TRACKING CALLBACK
+// ─────────────────────────────────────────────
+function onHandResults(results) {
+  const camCanvas = document.getElementById('camCanvas');
+  const ctx = camCanvas.getContext('2d');
+  const vid = document.getElementById('camVideo');
+  camCanvas.width = vid.videoWidth || 320;
+  camCanvas.height = vid.videoHeight || 240;
+  ctx.clearRect(0, 0, camCanvas.width, camCanvas.height);
+
+  handData.left = null;
+  handData.right = null;
+
+  if (results.multiHandLandmarks && results.multiHandedness) {
+    for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+      const landmarks = results.multiHandLandmarks[i];
+      const handedness = results.multiHandedness[i].label; // 'Left' or 'Right'
+      // MediaPipe labels are mirrored (camera is flipped), so swap
+      const side = handedness === 'Left' ? 'right' : 'left';
+
+      // Y of wrist landmark (0), normalized 0-1
+      const wristY = landmarks[0].y;
+      handData[side] = wristY;
+
+      // Draw skeleton on cam canvas
+      drawHandSkeleton(ctx, landmarks, camCanvas.width, camCanvas.height, side);
+    }
+  }
+
+  // Update indicators
+  document.getElementById('indLeft').className = 'hand-ind' + (handData.left !== null ? ' active-left' : '');
+  document.getElementById('indRight').className = 'hand-ind' + (handData.right !== null ? ' active-right' : '');
+}
+
+function drawHandSkeleton(ctx, landmarks, w, h, side) {
+  const color = side === 'left' ? '#00f5ff' : '#ff006e';
+  const connections = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],[0,17]
+  ];
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.8;
+  for (const [a,b] of connections) {
+    ctx.beginPath();
+    ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
+    ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 1;
+  for (const lm of landmarks) {
+    ctx.beginPath();
+    ctx.arc(lm.x * w, lm.y * h, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────
+//  GAME ENGINE
+// ─────────────────────────────────────────────
+const GW = 800, GH = 500;
+const PADDLE_W = 14, PADDLE_H = 90;
+const BALL_R = 10;
+const WIN_SCORE = 10;
+
+function createGameState() {
+  return {
+    p1: { y: GH/2 - PADDLE_H/2, score: 0 },
+    p2: { y: GH/2 - PADDLE_H/2, score: 0 },
+    ball: { x: GW/2, y: GH/2, dx: 5 * (Math.random() > 0.5 ? 1 : -1), dy: 3 * (Math.random() > 0.5 ? 1 : -1) },
+    phase: 'playing', // 'playing' | 'scored' | 'over'
+    scoredTimer: 0,
+    trail: [],
+    particles: [],
+  };
+}
+
+function getAiSpeed() {
+  return { easy: 2.5, medium: 4.5, hard: 7 }[aiLevel] || 4.5;
+}
+
+function launchGame() {
+  // Setup UI
+  document.getElementById('p1Name').textContent = 'PLAYER 1';
+  document.getElementById('p2Name').textContent = gameMode === 'friend' ? 'PLAYER 2' : 'AI';
+  updateScoreDisplay(0, 0);
+
+  gameState = createGameState();
+  showScreen('gameScreen');
+
+  const canvas = document.getElementById('gameCanvas');
+  canvas.width = GW;
+  canvas.height = GH;
+
+  // Resize canvas to fit area
+  resizeGameCanvas();
+  window.addEventListener('resize', resizeGameCanvas);
+
+  startCountdown(3, () => {
+    startVisionLoop();
+    animFrame = requestAnimationFrame(gameLoop);
+  });
+}
+
+function resizeGameCanvas() {
+  const area = document.getElementById('gameArea');
+  const canvas = document.getElementById('gameCanvas');
+  const aw = area.clientWidth - 40;
+  const ah = area.clientHeight - 40;
+  const scale = Math.min(aw / GW, ah / GH);
+  canvas.style.width = Math.floor(GW * scale) + 'px';
+  canvas.style.height = Math.floor(GH * scale) + 'px';
+}
+
+// Countdown
+function startCountdown(from, callback) {
+  const overlay = document.getElementById('countdownOverlay');
+  const num = document.getElementById('countdownNum');
+  overlay.classList.remove('hidden');
+  let current = from;
+  num.textContent = current;
+
+  const tick = () => {
+    current--;
+    if (current <= 0) {
+      overlay.classList.add('hidden');
+      callback();
+    } else {
+      num.textContent = current;
+      num.style.animation = 'none';
+      num.offsetWidth; // reflow
+      num.style.animation = 'countPop 1s ease-out';
+      setTimeout(tick, 1000);
+    }
+  };
+  setTimeout(tick, 1000);
+}
+
+// Vision loop: continuously send frames to MediaPipe
+let visionRunning = false;
+async function startVisionLoop() {
+  visionRunning = true;
+  const vid = document.getElementById('camVideo');
+  const loop = async () => {
+    if (!visionRunning) return;
+    if (vid.readyState >= 2 && handsDetector) {
+      await handsDetector.send({ image: vid });
+    }
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function stopVisionLoop() {
+  visionRunning = false;
+}
+
+// Main game loop
+let lastTime = 0;
+function gameLoop(ts) {
+  const dt = Math.min((ts - lastTime) / 16.67, 3); // delta, capped
+  lastTime = ts;
+
+  // FPS
+  frameCount++;
+  if (ts - lastFpsTime >= 1000) {
+    currentFps = frameCount;
+    frameCount = 0;
+    lastFpsTime = ts;
+    document.getElementById('fpsDisplay').textContent = currentFps + ' FPS';
+  }
+
+  if (gameState.phase === 'playing') {
+    updateGame(dt);
+  } else if (gameState.phase === 'scored') {
+    gameState.scoredTimer -= dt;
+    if (gameState.scoredTimer <= 0) {
+      gameState.phase = 'playing';
+    }
+  }
+
+  renderGame();
+
+  if (gameState.phase !== 'over') {
+    animFrame = requestAnimationFrame(gameLoop);
+  }
+}
+
+function updateGame(dt) {
+  const gs = gameState;
+
+  // ── P1 PADDLE (always hand-controlled) ──
+  if (handData.left !== null) {
+    const targetY = handData.left * GH - PADDLE_H / 2;
+    gs.p1.y += (targetY - gs.p1.y) * 0.25;
+    gs.p1.y = Math.max(0, Math.min(gs.p1.y, GH - PADDLE_H));
+  }
+
+  // ── P2 PADDLE ──
+  if (gameMode === 'friend') {
+    if (handData.right !== null) {
+      const targetY = handData.right * GH - PADDLE_H / 2;
+      gs.p2.y += (targetY - gs.p2.y) * 0.25;
+      gs.p2.y = Math.max(0, Math.min(gs.p2.y, GH - PADDLE_H));
+    }
+  } else {
+    // AI
+    const aiSpeed = getAiSpeed();
+    const ballCenter = gs.ball.y;
+    const paddleCenter = gs.p2.y + PADDLE_H / 2;
+    const diff = ballCenter - paddleCenter;
+    const move = Math.sign(diff) * Math.min(Math.abs(diff), aiSpeed * dt);
+    gs.p2.y += move;
+    gs.p2.y = Math.max(0, Math.min(gs.p2.y, GH - PADDLE_H));
+  }
+
+  // ── BALL ──
+  const b = gs.ball;
+  b.x += b.dx * dt;
+  b.y += b.dy * dt;
+
+  // Trail
+  gs.trail.push({ x: b.x, y: b.y, age: 0 });
+  if (gs.trail.length > 12) gs.trail.shift();
+  gs.trail.forEach(t => t.age++);
+
+  // Top/bottom bounce
+  if (b.y - BALL_R <= 0) { b.y = BALL_R; b.dy = Math.abs(b.dy); spawnParticles(b.x, 0, '#00f5ff'); }
+  if (b.y + BALL_R >= GH) { b.y = GH - BALL_R; b.dy = -Math.abs(b.dy); spawnParticles(b.x, GH, '#00f5ff'); }
+
+  // P1 paddle collision (left)
+  const p1x = 24;
+  if (b.dx < 0 && b.x - BALL_R <= p1x + PADDLE_W && b.x + BALL_R >= p1x) {
+    if (b.y >= gs.p1.y - BALL_R && b.y <= gs.p1.y + PADDLE_H + BALL_R) {
+      b.x = p1x + PADDLE_W + BALL_R;
+      const hitPos = (b.y - (gs.p1.y + PADDLE_H/2)) / (PADDLE_H/2);
+      b.dy = hitPos * 6;
+      b.dx = Math.abs(b.dx) * 1.05;
+      if (Math.abs(b.dx) > 15) b.dx = 15;
+      spawnParticles(b.x, b.y, '#00f5ff');
+    }
+  }
+
+  // P2 paddle collision (right)
+  const p2x = GW - 24 - PADDLE_W;
+  if (b.dx > 0 && b.x + BALL_R >= p2x && b.x - BALL_R <= p2x + PADDLE_W) {
+    if (b.y >= gs.p2.y - BALL_R && b.y <= gs.p2.y + PADDLE_H + BALL_R) {
+      b.x = p2x - BALL_R;
+      const hitPos = (b.y - (gs.p2.y + PADDLE_H/2)) / (PADDLE_H/2);
+      b.dy = hitPos * 6;
+      b.dx = -Math.abs(b.dx) * 1.05;
+      if (Math.abs(b.dx) < -15) b.dx = -15;
+      spawnParticles(b.x, b.y, '#ff006e');
+    }
+  }
+
+  // Scoring
+  if (b.x - BALL_R <= 0) {
+    gs.p2.score++;
+    updateScoreDisplay(gs.p1.score, gs.p2.score);
+    spawnParticles(0, b.y, '#ff006e', 30);
+    checkWin() || resetBall(-1);
+    return;
+  }
+  if (b.x + BALL_R >= GW) {
+    gs.p1.score++;
+    updateScoreDisplay(gs.p1.score, gs.p2.score);
+    spawnParticles(GW, b.y, '#00f5ff', 30);
+    checkWin() || resetBall(1);
+    return;
+  }
+
+  // Update particles
+  gs.particles = gs.particles.filter(p => p.life > 0);
+  gs.particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.15;
+    p.life -= 2;
+    p.vx *= 0.97;
+  });
+}
+
+function resetBall(dir) {
+  const b = gameState.ball;
+  b.x = GW / 2; b.y = GH / 2;
+  b.dx = 5 * (dir || (Math.random() > 0.5 ? 1 : -1));
+  b.dy = (Math.random() * 4 - 2);
+  gameState.trail = [];
+  gameState.phase = 'scored';
+  gameState.scoredTimer = 60;
+}
+
+function checkWin() {
+  const gs = gameState;
+  if (gs.p1.score >= WIN_SCORE || gs.p2.score >= WIN_SCORE) {
+    gs.phase = 'over';
+    stopVisionLoop();
+    cancelAnimationFrame(animFrame);
+    setTimeout(() => showWinScreen(), 800);
+    return true;
+  }
+  return false;
+}
+
+function spawnParticles(x, y, color, count = 12) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 5 + 2;
+    gameState.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      color,
+      life: 60 + Math.random() * 40,
+      size: Math.random() * 3 + 1,
+    });
+  }
+}
+
+function updateScoreDisplay(s1, s2) {
+  document.getElementById('scoreP1').textContent = s1;
+  document.getElementById('scoreP2').textContent = s2;
+}
+
+// ─────────────────────────────────────────────
+//  RENDERER
+// ─────────────────────────────────────────────
+function renderGame() {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const gs = gameState;
+  const b = gs.ball;
+
+  ctx.clearRect(0, 0, GW, GH);
+
+  // Background
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(0, 0, GW, GH);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(0,245,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < GW; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GH); ctx.stroke(); }
+  for (let y = 0; y < GH; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GW, y); ctx.stroke(); }
+
+  // Center line
+  ctx.setLineDash([8, 10]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(GW/2, 0); ctx.lineTo(GW/2, GH); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Particles
+  for (const p of gs.particles) {
+    const alpha = p.life / 100;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Ball trail
+  for (let i = 0; i < gs.trail.length; i++) {
+    const t = gs.trail[i];
+    const ratio = i / gs.trail.length;
+    ctx.globalAlpha = ratio * 0.5;
+    ctx.fillStyle = '#00f5ff';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, BALL_R * ratio, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Ball glow
+  const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, BALL_R * 3);
+  grad.addColorStop(0, 'rgba(255,255,255,0.3)');
+  grad.addColorStop(1, 'rgba(0,245,255,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R * 3, 0, Math.PI * 2); ctx.fill();
+
+  // Ball
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#00f5ff';
+  ctx.shadowBlur = 15;
+  ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // P1 Paddle
+  drawPaddle(ctx, 24, gs.p1.y, '#00f5ff');
+
+  // P2 Paddle
+  drawPaddle(ctx, GW - 24 - PADDLE_W, gs.p2.y, '#ff006e');
+
+  // Score overlay on canvas
+  ctx.font = 'bold 52px Orbitron, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.fillText(gs.p1.score, GW/2 - 100, 70);
+  ctx.fillText(gs.p2.score, GW/2 + 100, 70);
+
+  // "SCORED" flash
+  if (gs.phase === 'scored') {
+    ctx.globalAlpha = Math.sin(gs.scoredTimer * 0.2) * 0.5 + 0.3;
+    ctx.fillStyle = '#ffe600';
+    ctx.font = 'bold 36px Orbitron, monospace';
+    ctx.fillText('POINT!', GW/2, GH/2);
+    ctx.globalAlpha = 1;
+  }
+
+  // No hand detected warning for P1
+  if (handData.left === null && gs.phase === 'playing') {
+    ctx.fillStyle = 'rgba(255,230,0,0.6)';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('⚠ SHOW LEFT HAND', 30, GH - 16);
+  }
+  if (gameMode === 'friend' && handData.right === null && gs.phase === 'playing') {
+    ctx.fillStyle = 'rgba(255,230,0,0.6)';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('⚠ SHOW RIGHT HAND', GW - 30, GH - 16);
+  }
+}
+
+function drawPaddle(ctx, x, y, color) {
+  // Glow
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 20;
+
+  // Paddle body
+  const g = ctx.createLinearGradient(x, y, x + PADDLE_W, y + PADDLE_H);
+  g.addColorStop(0, color + 'cc');
+  g.addColorStop(0.5, color);
+  g.addColorStop(1, color + 'cc');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.roundRect(x, y, PADDLE_W, PADDLE_H, 4);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─────────────────────────────────────────────
+//  WIN / QUIT
+// ─────────────────────────────────────────────
+function showWinScreen() {
+  const gs = gameState;
+  const p1Wins = gs.p1.score >= WIN_SCORE;
+  const title = document.getElementById('winTitle');
+  if (p1Wins) {
+    title.textContent = 'PLAYER 1 WINS!';
+    title.className = 'win-title p1-win';
+  } else {
+    title.textContent = gameMode === 'friend' ? 'PLAYER 2 WINS!' : 'AI WINS!';
+    title.className = 'win-title p2-win';
+  }
+  document.getElementById('winScore').textContent = `${gs.p1.score}  —  ${gs.p2.score}`;
+  showScreen('winScreen');
+}
+
+function restartGame() {
+  cancelAnimationFrame(animFrame);
+  gameState = createGameState();
+  showScreen('gameScreen');
+  startCountdown(3, () => {
+    startVisionLoop();
+    lastTime = 0;
+    animFrame = requestAnimationFrame(gameLoop);
+  });
+}
+
+function quitToMenu() {
+  cancelAnimationFrame(animFrame);
+  stopVisionLoop();
+  if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); videoStream = null; }
+  handsDetector = null;
+  handData = { left: null, right: null };
+  window.removeEventListener('resize', resizeGameCanvas);
+  showScreen('menuScreen');
+}
+</script>
+</body>
+</html>
